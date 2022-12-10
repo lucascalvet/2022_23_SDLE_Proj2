@@ -1,2 +1,4 @@
 cryptography
 kademlia
+fastapi
+uvicorn
