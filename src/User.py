@@ -60,6 +60,17 @@ class User:
             "subscribers": self.subscribers,
             "last_post_id": self.last_post_id,
         }
+    
+    def get_posts(self):
+        res_posts = []
+        for author in self.posts.keys():
+            for id in author.keys():
+                full_post = self.posts[author][id]
+                full_post["author"] = author
+                full_post["id"] = id
+                res_posts += full_post
+        res_posts.sort(key=lambda post: post.timestamp, reverse=True)
+        return res_posts
 
     def serialize_key(self, public_key):
         return public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo).decode('utf-8')
