@@ -1,12 +1,24 @@
 from fastapi import FastAPI, Body
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from .User import User
-import time
-
+import time 
+from fastapi.middleware.cors import CORSMiddleware
 # Create the User
 # user = User(user_private_key, "127.0.0.1", 5678)
 
 app = FastAPI()
+
+origins = [
+    "http://localhost:3000/",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Fix this later
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 posts = [
     {
