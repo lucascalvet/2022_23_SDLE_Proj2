@@ -9,7 +9,7 @@ from Receiver import Receiver
 
 
 class User:
-    def __init__(self, private_key, ip, kademlia_port, receiver_port, bootstrap_nodes=[], subscriptions=[], subscribers=[]):
+    def __init__(self, private_key, ip, kademlia_port, receiver_port, bootstrap_nodes=[], persistence_file="data.json"):
         # Event loop for io operations
         self.loop = asyncio.get_event_loop()
 
@@ -18,10 +18,11 @@ class User:
         self.receiver_port = receiver_port
         self.server = Server()
         self.receiver = Receiver(self)
-        self.subscriptions = subscriptions
-        self.subscribers = subscribers
+        self.subscriptions = []
+        self.subscribers = []
         self.last_post_id = -1
         self.posts = {}
+        self.persistence_file = persistence_file
 
         self.loop.run_until_complete(self.server.listen(kademlia_port))
         self.loop.run_until_complete(self.server.bootstrap([(self.ip, kademlia_port)]))
@@ -32,17 +33,21 @@ class User:
         self.public_key = self.serialize_key(self.private_key.public_key())
         
         # Update state using the data on the DHT
-        dht_info = self.loop.run_until_complete(self.server.get(self.public_key))
+        dht_info = self.loop.run_until_complete(
+            self.server.get(self.public_key))
         if dht_info != None:
             dht_info = json.loads(dht_info)
             self.subscribers = dht_info["subscribers"]
         else:
             self.loop.run_until_complete(self.update_dht())
-        
+
         self.loop.run_until_complete(self.update_timeline())
 
         self.receiver.daemon = True
         self.receiver.start()
+    
+    def load_available_info():
+        return
 
     async def update_dht(self):
         await self.server.set(self.public_key, json.dumps(self.get_dht_info()))
@@ -55,7 +60,7 @@ class User:
             "subscribers": self.subscribers,
             "last_post_id": self.last_post_id,
         }
-    
+
     def serialize_key(self, public_key):
         return public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo).decode('utf-8')
     
@@ -173,7 +178,7 @@ class User:
             "op": "subscribe",
             "sender": self.public_key,
             "timestamp": time.time(),
-            #"signature": None,
+            # "signature": None,
         }
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['timestamp']}")
         print("DEBUG_INSIDE_SUB_DEST:" + str(public_key))
@@ -204,7 +209,7 @@ class User:
             "op": "unsubscribe",
             "sender": self.public_key,
             "timestamp": time.time(),
-            #"signature": None,
+            # "signature": None,
         }
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['timestamp']}")
         ans = await self.send_to_peer(public_key, message)
@@ -232,7 +237,7 @@ class User:
             return (-1, "Didn't request posts. Neither target nor subscribers were available")
         else:
             return direct_ans
-        
+
     async def request_posts(self, public_key, target_public_key, first_post=0):
         message = {
             "op": "request posts",
@@ -240,7 +245,7 @@ class User:
             "target": target_public_key,
             "first_post": first_post,
             "timestamp": time.time(),
-            #"signature": None,
+            # "signature": None,
         }
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['target']}:{message['first_post']}:{message['timestamp']}")
         if await self.server.get(target_public_key) == None:
@@ -271,7 +276,7 @@ class User:
             "first_id": first_post,
             "posts": posts_to_send,
             "timestamp": time.time(),
-            #"signature": None,
+            # "signature": None,
         }
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['author']}:{message['first_id']}:{message['posts']}:{message['timestamp']}")
         print("DEBUG_INSIDE_SEND_DEST:" + str(public_key))
