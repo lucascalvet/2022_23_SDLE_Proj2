@@ -77,16 +77,16 @@ if __name__ == "__main__":
 
     loop.run_until_complete(bob.update_timeline())
 
-    a = loop.run_until_complete(alice.server.get(alice.public_key))
+    a = loop.run_until_complete(alice.server.get(alice.serialize_key(alice.public_key)))
     print("A")
     print(a)
-    b = loop.run_until_complete(bob.server.get(bob.public_key))
+    b = loop.run_until_complete(bob.server.get(bob.serialize_key(bob.public_key)))
     print("B")
     print(b)
-    c = loop.run_until_complete(alice.server.get(bob.public_key))
+    c = loop.run_until_complete(alice.server.get(alice.serialize_key(bob.public_key)))
     print("C")
     print(c)
-    d = loop.run_until_complete(bob.server.get(alice.public_key))
+    d = loop.run_until_complete(bob.server.get(bob.serialize_key(alice.public_key)))
     print("D")
     print(d)
 

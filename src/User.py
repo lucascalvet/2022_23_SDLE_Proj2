@@ -57,7 +57,7 @@ class User:
         return str(public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo))
     
     def deserialize_key(self, public_key):
-        return Ed25519PublicKey.from_public_bytes(bytes(public_key[30:90], 'utf-8'))
+        return serialization.load_pem_public_key(public_key)
 
     async def create_post(self, text):
         """Creates a new post with the given text, signed with the user's private key."""
