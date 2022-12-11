@@ -23,7 +23,7 @@ export default function TwitterFeed() {
       const response = await fetch(API_ENDPOINT, {
         method: 'GET',
         mode: 'cors',
-    });
+      });
       const json = await response.json();
       setPosts(json);
     };
@@ -44,7 +44,7 @@ export default function TwitterFeed() {
 
   const handleTweetChange = (event) => {
     setTweetText(event.target.value); // update the tweet text state variable
-  };  
+  };
 
   const handleTweetSubmit = async () => {
     // make a request to the API to post the tweet
@@ -65,57 +65,57 @@ export default function TwitterFeed() {
   }
 
   return (
-    <div style = {{display: "flex", marginTop: "5px", width: "100%", flexDirection: "column"}}>
-          <Card style = {{margin: "auto", marginTop: "5px", width: "100%"}}>
-      <CardHeader 
-        avatar={
-          <Avatar aria-label="Twitter">
-            <Person />
-          </Avatar>
-        }
-        action={
-          <TextField  
-            id="twitter-search"
-            label="Search"
-            type="search"
-            margin="normal"
-            value={searchQuery}
-            onChange={handleSearchChange}
-          />
-        }
-        title="Twitter Feed"
-        subheader="Latest tweets from your followers"
-      />
-      <CardContent style = {{padding: "5px"}}>
-        <Grid container direction="column" spacing={2}>
-        {posts.map((post) => (
-            <Grid item key={1}>
-              <Grid container alignItems="center" spacing={1}>
-                <Grid item>
-                  <Typography variant="body1">{post.author_alias}</Typography>
-                </Grid>
-                <Grid item xs>
-                  <Typography variant="body2" color="textSecondary">
-                    {post.text}
-                  </Typography>
-                </Grid>
-                <Grid item>
-                  <IconButton onClick={() => handleUnfollow(1)}>
-                    <Person />
-                  </IconButton>
+    <div style={{ display: "flex", marginTop: "5px", width: "100%", flexDirection: "column" }}>
+      <Card style={{ margin: "auto", marginTop: "5px", width: "100%" }}>
+        <CardHeader
+          avatar={
+            <Avatar aria-label="Twitter">
+              <Person />
+            </Avatar>
+          }
+          action={
+            <TextField
+              id="twitter-search"
+              label="Search"
+              type="search"
+              margin="normal"
+              value={searchQuery}
+              onChange={handleSearchChange}
+            />
+          }
+          title="Twitter Feed"
+          subheader="Latest tweets from your followers"
+        />
+        <div style={{ marginTop: "50px", display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
+          <TextField id="input-field" label="Enter a new post" style={{ width: "50%", marginRight: "5px", borderRadius: "0px" }} />
+          <Button style={{ height: "50px", borderRadius: "0px" }} variant="contained" color="primary" onClick={handleTweetSubmit}>
+            Post
+          </Button>
+        </div>
+        <CardContent style={{ padding: "5px" }}>
+          <Grid container direction="column" spacing={2}>
+            {posts.map((post) => (
+              <Grid item key={1}>
+                <Grid container alignItems="center" spacing={1}>
+                  <Grid item>
+                    <Typography variant="body1">{post.author_alias}</Typography>
+                  </Grid>
+                  <Grid item xs>
+                    <Typography variant="body2" color="textSecondary">
+                      {post.text}
+                    </Typography>
+                  </Grid>
+                  <Grid item>
+                    <IconButton onClick={() => handleUnfollow(1)}>
+                      <Person />
+                    </IconButton>
+                  </Grid>
                 </Grid>
               </Grid>
-            </Grid>
             ))}
-        </Grid>
-      </CardContent>
-    </Card>
-    <div style={{marginTop: "50px" , display: "flex", alignItems: "center", justifyContent: "center", width: "100%"}}>
-      <TextField id="input-field" label="Enter a new post" style={{width: "50%",marginRight: "5px", borderRadius: "0px"}} />
-      <Button style = {{height: "50px", borderRadius: "0px"}} variant="contained" color="primary" onClick={handleTweetSubmit}>
-        Post
-      </Button>
-    </div>
+          </Grid>
+        </CardContent>
+      </Card>
     </div>
 
   );
