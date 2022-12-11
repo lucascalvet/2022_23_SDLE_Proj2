@@ -1,6 +1,7 @@
 import time
 import json
 import asyncio
+import base64
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives import serialization
 from kademlia.network import Server
@@ -8,7 +9,7 @@ from Receiver import Receiver
 
 
 class User:
-    def __init__(self, private_key, ip, kademlia_port, receiver_port, persistence_file="data.json"):
+    def __init__(self, private_key, ip, kademlia_port, receiver_port, bootstrap_nodes=[], persistence_file="data.json"):
         # Event loop for io operations
         self.loop = asyncio.get_event_loop()
 
@@ -20,16 +21,17 @@ class User:
         self.subscriptions = []
         self.subscribers = []
         self.last_post_id = -1
-        self.posts = []
+        self.posts = {}
         self.persistence_file = persistence_file
 
         self.loop.run_until_complete(self.server.listen(kademlia_port))
-        self.loop.run_until_complete(
-            self.server.bootstrap([(self.ip, kademlia_port)]))
+        self.loop.run_until_complete(self.server.bootstrap([(self.ip, kademlia_port)]))
+        for node in bootstrap_nodes:
+            self.loop.run_until_complete(self.server.bootstrap([(node[0], node[1])]))
 
         # Extract the public key from the private key
-        self.public_key = self.private_key.public_key()
-
+        self.public_key = self.serialize_key(self.private_key.public_key())
+        
         # Update state using the data on the DHT
         dht_info = self.loop.run_until_complete(
             self.server.get(self.public_key))
@@ -60,18 +62,19 @@ class User:
         }
 
     def serialize_key(self, public_key):
-        return str(public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo))
-
+        return public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo).decode('utf-8')
+    
     def deserialize_key(self, public_key):
-        return serialization.load_pem_public_key(public_key)
+        try:
+            return serialization.load_pem_public_key(public_key.encode('utf-8'))
+        except Exception as e:
+            print("Deserialize Exception " + str(e))
 
     async def create_post(self, text):
         """Creates a new post with the given text, signed with the user's private key."""
         self.last_post_id += 1
         # Create the post with a timestamp and an empty signature
         post = {
-            self.public_key:
-            {
                 self.last_post_id:
                 {
                     "text": text,
@@ -79,13 +82,15 @@ class User:
                     "signature": None,
                 }
             }
-        }
-
+        
         # Sign the message with the post's timestamp
-        message = f"{post[self.public_key][self.last_post_id]['text']}:{post[self.public_key][self.last_post_id]['timestamp']}"
-        post["signature"] = self.sign(message)
+        message = f"{post[self.last_post_id]['text']}:{post[self.last_post_id]['timestamp']}"
+        post[self.last_post_id]["signature"] = base64.b64encode(self.sign(message)).decode('utf-8')
 
-        self.posts.append(post)
+        if self.public_key in self.posts.keys():
+            self.posts[self.public_key].update(post)
+        else:
+            self.posts[self.public_key] = post
         await self.update_dht()
 
         return post
@@ -93,10 +98,11 @@ class User:
     def sign(self, text):
         """Signs the given text with the user's private key."""
         # Sign the text using the user's private key
-        signature = self.private_key.sign(bytes(text, 'ascii'))
+        signature = self.private_key.sign(text.encode('utf-8'))
         return signature
 
     def verify_signature(self, public_key, signature, content):
+        public_key = self.deserialize_key(public_key)
         return public_key.verify(signature, content)
 
     def verify_post_signature(self, author_key, post):
@@ -104,7 +110,14 @@ class User:
 
         # Verify the signature using the author's public key
         message = f"{post['text']}:{post['timestamp']}"
-        return author_key.verify(post["signature"], bytes(message, 'ascii'))
+        author_key = self.deserialize_key(author_key)
+        try:
+            result = author_key.verify(base64.b64decode(post["signature"].encode('utf-8')), message.encode('utf-8'))
+            return result == None
+        except Exception as e:
+            print("Verification Exception " + str(e))
+            return False
+        return 
 
     async def write_message(self, ip, port, message):
         try:
@@ -117,7 +130,7 @@ class User:
             await writer.wait_closed()
             return True
         except Exception as e:
-            print("Exception " + str(e))
+            print("Write Exception " + str(e) + " in message " + str(message))
             return False
 
     async def send_to_peer(self, public_key, message):
@@ -147,10 +160,8 @@ class User:
         if peer_info is None:
             return (-2, "Unknown Public Key")
         peer_info = json.loads(peer_info)
-        print(peer_info)
-        peer_info["subscribers"].append(self.serialize_key(self.public_key))
-        print(peer_info)
-        await self.server.set(public_key, json.dumps(peer_info))
+        peer_info["subscribers"].append(self.public_key)
+        await self.server.set(self.public_key, json.dumps(peer_info))
         return (0, "Added subscription to DHT with success")
 
     async def remove_subscription_from_foreign_dht(self, public_key):
@@ -158,14 +169,14 @@ class User:
         if peer_info is None:
             return (-2, "Unknown Public Key")
         peer_info = json.loads(peer_info)
-        peer_info["subscribers"].remove(self.serialize_key(self.public_key))
-        await self.server.set(public_key, json.dumps(peer_info))
+        peer_info["subscribers"].remove(self.public_key)
+        await self.server.set(self.public_key, json.dumps(peer_info))
         return (0, "Removed subscription from DHT with success")
 
     async def subscribe(self, public_key):
         message = {
             "op": "subscribe",
-            "sender": self.serialize_key(self.public_key),
+            "sender": self.public_key,
             "timestamp": time.time(),
             # "signature": None,
         }
@@ -194,7 +205,7 @@ class User:
     async def unsubscribe(self, public_key):
         message = {
             "op": "unsubscribe",
-            "sender": self.serialize_key(self.public_key),
+            "sender": self.public_key,
             "timestamp": time.time(),
             # "signature": None,
         }
@@ -227,8 +238,8 @@ class User:
     async def request_posts(self, public_key, target_public_key, first_post=0):
         message = {
             "op": "request posts",
-            "sender": self.serialize_key(self.public_key),
-            "target": self.serialize_key(target_public_key),
+            "sender": self.public_key,
+            "target": target_public_key,
             "first_post": first_post,
             "timestamp": time.time(),
             # "signature": None,
@@ -245,47 +256,46 @@ class User:
             return (-1, "Didn't request posts. User offline")
 
     async def send_posts(self, public_key, target_public_key, first_post=0):
-        print("EUREKA")
-        # if target_public_key not in self.posts.keys():
-        #print("FRED START")
-        # return "Didn't send posts. Didn't have any ;("
+        if target_public_key not in self.posts.keys():
+            return (-3, "Didn't send posts. Didn't have any ;(")
+     
+        try:
+            posts_to_send = {key: self.posts[target_public_key][key] for key in self.posts[target_public_key] if key >= first_post}
+            posts_to_send = json.dumps(posts_to_send)
+        except Exception as e:
+            print("JSON Exception " + str(e))
+     
         message = {
             "op": "send posts",
-            "sender": self.serialize_key(self.public_key),
-            "author": self.serialize_key(target_public_key),
+            "sender": self.public_key,
+            "author": target_public_key,
             "first_id": first_post,
-            "posts": [self.posts[target_public_key][post_id] for post_id in self.posts[target_public_key].keys() if post_id >= first_post],
+            "posts": posts_to_send,
             "timestamp": time.time(),
             # "signature": None,
         }
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['author']}:{message['first_id']}:{message['posts']}:{message['timestamp']}")
         ans = await self.send_to_peer(public_key, message)
         if ans[0] == -2:
-            print("FRED -2")
             return (-2, "Didn't send posts. Public Key unknown")
         elif ans[0] == 0:
-            print("FRED 0")
             return (0, "Sent posts")
         else:
-            print("FRED -1")
             return (-1, "Didn't send posts. User offline")
 
-    def receive_posts(self, author_key, first_id, posts):
-        current_id = first_id
-        for post in posts:
-            if self.verify_post_signature(author_key, post):
+    def receive_posts(self, author_key, posts):
+        for item in posts.items():
+            if self.verify_post_signature(author_key, item[1]):
                 if author_key in self.posts.keys():
-                    self.posts[author_key].update({current_id: post})
+                    if item[0] not in self.posts[author_key].keys():
+                        self.posts[author_key].update({item[0]: item[1]})
                 else:
-                    self.posts[author_key] = {current_id: post}
-            else:
-                print("Invalid signature!")
-            current_id += 1
-
+                    self.posts[author_key]= {item[0]: item[1]}
+        
     async def update_timeline(self):
         for public_key in self.subscriptions:
             if public_key in self.posts and len(self.posts[public_key]) > 0:
-                post_latest_id = max(self.posts[public_key].keys())
+                post_latest_id = int(max(self.posts[public_key].keys()))
                 await self.find_posts(public_key, post_latest_id + 1)
             else:
                 await self.find_posts(public_key, 0)

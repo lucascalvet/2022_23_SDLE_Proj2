@@ -63,32 +63,15 @@ if __name__ == "__main__":
     loop.create_task(user.print_timeline())
     '''
 
-    loop = asyncio.get_event_loop()
-
     alice = User(Ed25519PrivateKey.generate(), "127.0.0.1", 1233, 5001)
 
-    bob = User(Ed25519PrivateKey.generate(), "127.0.0.2", 1234, 5002)
+    bob = User(Ed25519PrivateKey.generate(), "127.0.0.2", 1234, 5002, [("127.0.0.1", 1233)])
 
-    loop.run_until_complete(alice.server.bootstrap([(bob.ip, 1234)]))
+    alice.loop.run_until_complete(alice.create_post("Hola soy Aliceee"))
 
-    loop.run_until_complete(alice.create_post("Hola soy Aliceee"))
+    bob.loop.run_until_complete(bob.subscribe(alice.public_key))
 
-    loop.run_until_complete(bob.subscribe(alice.public_key))
-
-    loop.run_until_complete(bob.update_timeline())
-
-    a = loop.run_until_complete(alice.server.get(alice.serialize_key(alice.public_key)))
-    print("A")
-    print(a)
-    b = loop.run_until_complete(bob.server.get(bob.serialize_key(bob.public_key)))
-    print("B")
-    print(b)
-    c = loop.run_until_complete(alice.server.get(alice.serialize_key(bob.public_key)))
-    print("C")
-    print(c)
-    d = loop.run_until_complete(bob.server.get(bob.serialize_key(alice.public_key)))
-    print("D")
-    print(d)
-
+    bob.loop.run_until_complete(bob.update_timeline())
+    
     print(bob.posts)
 

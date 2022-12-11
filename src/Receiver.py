@@ -26,23 +26,19 @@ class Receiver(Thread):
 
                 operation = message["op"]
                 if operation == "subscribe":
-                    print("AA")
                     self.subscribe_handler(message)
                 elif operation == "unsubscribe":
-                    print("BB")
                     self.unsubscribe_handler(message)
                 elif operation == "request posts":
-                    print("CC")
                     self.request_posts_handler(message)
-                elif operation == "request posts":
-                    print("DD")
+                elif operation == "send posts":
                     self.send_posts_handler(message)
                 else:
                     print("Invalid operation")
 
             writer.close()
         except Exception as e:
-            print("Exception " + str(e))
+            print("Receiver Exception " + str(e) + " in operation " + str(operation))
 
     def subscribe_handler(self, message):
         self.user.add_subscriber(message["sender"])
@@ -52,8 +48,8 @@ class Receiver(Thread):
         asyncio.run_coroutine_threadsafe(self.user.remove_subscriber(message["sender"]), loop=self.user.loop)
         
     def request_posts_handler(self, message):
-        asyncio.run_coroutine_threadsafe(self.user.send_posts(message["sender"], self.user.deserialize_key(message["target"]), message["first_post"]), loop=self.user.loop)
+        asyncio.run_coroutine_threadsafe(self.user.send_posts(message["sender"], message["target"], message["first_post"]), loop=self.user.loop)
     
     def send_posts_handler(self, message):
-        self.user.receive_posts(self.user.deserialize_key(message["author"]), message["first_id"], message["posts"])
+        self.user.receive_posts(message["author"], json.loads(message["posts"]))
     
