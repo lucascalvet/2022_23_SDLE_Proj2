@@ -7,35 +7,11 @@ import {
   Avatar,
   Typography,
   IconButton,
+  Button,
   Grid,
   TextField,
 } from "@mui/material/";
 import { Person, Add } from "@mui/icons-material";
-
- /* const useStyles = makeStyles((theme) => ({
-   card: {
-     maxWidth: 600,
-     margin: "auto",
-     marginTop: theme.spacing(5),
-   },
-   cardContent: {
-     padding: theme.spacing(2),
-   },
-   cardHeader: {
-     padding: theme.spacing(1, 2),
-   },
-   textField: {
-     marginLeft: theme.spacing(1),
-     marginRight: theme.spacing(1),
-     width: 200,
-   },
-   followButton: {
-     marginLeft: "auto",
-   },
-   avatar: {
-     backgroundColor: theme.palette.primary.main,
-   },
- })); */
 
 export default function TwitterFeed() {
   const [posts, setPosts] = React.useState([]);
@@ -66,8 +42,31 @@ export default function TwitterFeed() {
     // Code to unfollow a user goes here
   };
 
+  const handleTweetChange = (event) => {
+    setTweetText(event.target.value); // update the tweet text state variable
+  };  
+
+  const handleTweetSubmit = async () => {
+    // make a request to the API to post the tweet
+    const API_ENDPOINT = "http://localhost:8000/post";
+    await fetch(API_ENDPOINT, {
+      method: 'POST',
+      mode: 'cors',
+      body: JSON.stringify({ text: tweetText }),
+    });
+
+    // fetch the updated list of tweets and update the posts state variable
+    const response = await fetch(API_ENDPOINT, {
+      method: 'GET',
+      mode: 'cors',
+    });
+    const json = await response.json();
+    setPosts(json);
+  }
+
   return (
-    <Card style = {{margin: "auto", marginTop: "5px" }}>
+    <div style = {{display: "flex", marginTop: "5px", width: "100%", flexDirection: "column"}}>
+          <Card style = {{margin: "auto", marginTop: "5px", width: "100%"}}>
       <CardHeader 
         avatar={
           <Avatar aria-label="Twitter">
@@ -109,19 +108,15 @@ export default function TwitterFeed() {
             </Grid>
             ))}
         </Grid>
-        {/* <div>
-          {posts.map((post) => (
-            <p>
-              {post.text}
-              {" - "}
-              {post.author_alias}
-              {" ("}
-              {new Date(post.timestamp * 1000).toLocaleString()}
-              {")"}
-            </p>
-          ))}
-        </div> */}
       </CardContent>
     </Card>
+    <div style={{marginTop: "50px" , display: "flex", alignItems: "center", justifyContent: "center", width: "100%"}}>
+      <TextField id="input-field" label="Enter a new post" style={{width: "50%",marginRight: "5px", borderRadius: "0px"}} />
+      <Button style = {{height: "50px", borderRadius: "0px"}} variant="contained" color="primary" onClick={handleTweetSubmit}>
+        Post
+      </Button>
+    </div>
+    </div>
+
   );
 };
