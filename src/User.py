@@ -1,7 +1,7 @@
 import time
 import json
 import asyncio
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives import serialization
 from kademlia.network import Server
 from Receiver import Receiver
@@ -27,7 +27,6 @@ class User:
 
         # Extract the public key from the private key
         self.public_key = self.private_key.public_key()
-        self.str_public_key = str(self.public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo))
         
         # Update state using the data on the DHT
         dht_info = self.loop.run_until_complete(self.server.get(self.public_key))
@@ -53,6 +52,12 @@ class User:
             "subscribers": self.subscribers,
             "last_post_id": self.last_post_id,
         }
+    
+    def serialize_key(self, public_key):
+        return str(public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo))
+    
+    def deserialize_key(self, public_key):
+        return Ed25519PublicKey.from_public_bytes(bytes(public_key[30:90], 'utf-8'))
 
     async def create_post(self, text):
         """Creates a new post with the given text, signed with the user's private key."""
@@ -98,7 +103,7 @@ class User:
     async def write_message(self, ip, port, message):
         try:
             _, writer = await asyncio.open_connection(ip, port)
-            json.dumps(message)
+            message = json.dumps(message)
             writer.write(message.encode())
             writer.write_eof()
             await writer.drain()
@@ -106,6 +111,7 @@ class User:
             await writer.wait_closed()
             return True
         except Exception as e:
+            print("Exception " + str(e))
             return False
 
     async def send_to_peer(self, public_key, message):
@@ -136,7 +142,7 @@ class User:
             return (-2, "Unknown Public Key")
         peer_info = json.loads(peer_info)
         print(peer_info)
-        peer_info["subscribers"].append(self.str_public_key)
+        peer_info["subscribers"].append(self.serialize_key(self.public_key))
         print(peer_info)
         await self.server.set(public_key, json.dumps(peer_info))
         return (0, "Added subscription to DHT with success")
@@ -146,18 +152,18 @@ class User:
         if peer_info is None:
             return (-2, "Unknown Public Key")
         peer_info = json.loads(peer_info)
-        peer_info["subscribers"].remove(self.str_public_key)
+        peer_info["subscribers"].remove(self.serialize_key(self.public_key))
         await self.server.set(public_key, json.dumps(peer_info))
         return (0, "Removed subscription from DHT with success")
 
     async def subscribe(self, public_key):
         message = {
             "op": "subscribe",
-            "sender": self.public_key,
+            "sender": self.serialize_key(self.public_key),
             "timestamp": time.time(),
+            #"signature": None,
         }
-        message["signature"] = self.sign(
-            f"{message['op']}:{message['sender']}:{message['timestamp']}")
+        #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['timestamp']}")
         direct_ans = await self.send_to_peer(public_key, message)
         # Target doesn't exist
         if direct_ans[0] == -2:
@@ -182,12 +188,11 @@ class User:
     async def unsubscribe(self, public_key):
         message = {
             "op": "unsubscribe",
-            "sender": self.public_key,
+            "sender": self.serialize_key(self.public_key),
             "timestamp": time.time(),
-            "signature": None,
+            #"signature": None,
         }
-        message["signature"] = self.sign(
-            f"{message['op']}:{message['sender']}:{message['timestamp']}")
+        #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['timestamp']}")
         ans = await self.send_to_peer(public_key, message)
         if ans[0] == -2:
             return (-2, "Didn't unsubscribe. Public Key unknown")
@@ -216,14 +221,13 @@ class User:
     async def request_posts(self, public_key, target_public_key, first_post=0):
         message = {
             "op": "request posts",
-            "sender": self.public_key,
-            "target": target_public_key,
+            "sender": self.serialize_key(self.public_key),
+            "target": self.serialize_key(target_public_key),
             "first_post": first_post,
             "timestamp": time.time(),
-            "signature": None,
+            #"signature": None,
         }
-        message["signature"] = self.sign(
-            f"{message['op']}:{message['sender']}:{message['target']}:{message['first_post']}:{message['timestamp']}")
+        #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['target']}:{message['first_post']}:{message['timestamp']}")
         if await self.server.get(target_public_key) == None:
             return (-3, "Didn't request posts. Target Public Key unknown")
         ans = await self.send_to_peer(public_key, message)
@@ -235,18 +239,20 @@ class User:
             return (-1, "Didn't request posts. User offline")
 
     async def send_posts(self, public_key, target_public_key, first_post=0):
-        if target_public_key not in self.posts.keys():
-            return "Didn't send posts. Didn't have any ;("
+        print("EUREKA")
+        #if target_public_key not in self.posts.keys():
+            #print("FRED START")
+            #return "Didn't send posts. Didn't have any ;("
         message = {
             "op": "send posts",
-            "sender": self.public_key,
-            "author": target_public_key,
+            "sender": self.serialize_key(self.public_key),
+            "author": self.serialize_key(target_public_key),
             "first_id": first_post,
             "posts": [self.posts[target_public_key][post_id] for post_id in self.posts[target_public_key].keys() if post_id >= first_post],
             "timestamp": time.time(),
-            "signature": None,
+            #"signature": None,
         }
-        message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['author']}:{message['first_id']}:{message['posts']}:{message['timestamp']}")
+        #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['author']}:{message['first_id']}:{message['posts']}:{message['timestamp']}")
         ans = await self.send_to_peer(public_key, message)
         if ans[0] == -2:
             print("FRED -2")
