@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import nest_asyncio
 nest_asyncio.apply()
 
-load_dotenv("alice.env")
+load_dotenv("users/david.env")
 
 USER_PRIVATE_KEY_FILE = os.getenv('USER_PRIVATE_KEY_FILE')
 KADEMLIA_PORT = os.getenv('KADEMLIA_PORT')
@@ -85,6 +85,7 @@ async def root():
 @app.get("/timeline")
 async def get_timeline():
     posts = user.get_posts()
+    print("POSTS: " + str(posts))
     # Transform the timestamp in each post to a date format
     transformed_posts = []
     for post in posts:
@@ -97,8 +98,10 @@ async def get_timeline():
         transformed_post = post
         post["formatted_date"] = formatted_date
 
-        if (post["author"][27:88] in aliases.keys()):
-            post["author_alias"] = aliases[post["author"][27:88]]
+        post["author"] = post["author"][27:87]
+
+        if (post["author"] in aliases.keys()):
+            post["author_alias"] = aliases[post["author"]]
         else:
             post["author_alias"] = ""
 
@@ -143,7 +146,6 @@ async def add_subscription(pubkey: str = "", alias: str = ""):
         raise HTTPException(status_code=400, detail="Missing public key")
     pubkey_ = "-----BEGIN PUBLIC KEY-----\n" + \
         pubkey + "\n-----END PUBLIC KEY-----\n"
-    print(pubkey_)
     res_code, res_string = user.loop.run_until_complete(user.subscribe(pubkey_))
     if res_code != -2 and alias != "":
         aliases[pubkey] = alias

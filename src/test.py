@@ -66,9 +66,9 @@ if __name__ == "__main__":
     loop.create_task(user.print_timeline())
     '''
 
-    alice = User(Ed25519PrivateKey.generate(), "127.0.0.1", 1233, 5007, persistence_file="alice_vieira.json")
+    alice = User(Ed25519PrivateKey.generate(), "127.0.0.1", 1233, 5007, persistence_file="alice_vieira4.json")
 
-    bob = User(Ed25519PrivateKey.generate(), "127.0.0.2", 1234, 5002, [("127.0.0.1", 1233)], persistence_file="bob_vance.json")
+    bob = User(Ed25519PrivateKey.generate(), "127.0.0.2", 1234, 5002, [("127.0.0.1", 1233)], persistence_file="bob_vance4.json")
 
     print("ALICE KEY:" + str(alice.public_key))
     print("BOB KEY:" + str(bob.public_key))
@@ -87,6 +87,7 @@ if __name__ == "__main__":
 
     print("BOB SUBSCRIP:" + str(bob.subscriptions))
 
+    bob.loop.run_until_complete(bob.subscribe(alice.public_key))
     bob.loop.run_until_complete(bob.subscribe(alice.public_key))
             
     print("ALICE SUBSCRIB2:" + str(alice.subscribers))
@@ -111,7 +112,7 @@ if __name__ == "__main__":
     
     print("BOB SUBSCRIP3:" + str(bob.subscriptions))
     
-    alice.loop.run_until_complete(alice.create_post("Beijo na bunda"))
+    alice.loop.run_until_complete(alice.create_post("Last call"))
     
     print("ALICE POSTS4:" + str(alice.posts))
     
