@@ -7,7 +7,7 @@ from .Receiver import Receiver
 
 
 class User:
-    async def __init__(self, private_key, ip, kademlia_port, receiver_port, subscriptions=[], subscribers=[]):
+    def __init__(self, private_key, ip, kademlia_port, receiver_port, subscriptions=[], subscribers=[]):
         # Event loop for io operations
         self.loop = asyncio.get_event_loop()
 
@@ -24,7 +24,7 @@ class User:
 
         # Extract the public key from the private key
         self.public_key = self.private_key.public_key()
-        await self.server.set(self.public_key, json.dumps(self.info))
+        # TODO: Check DHT 
 
     async def update_dht(self):
         await self.server.set(self.public_key, json.dumps(self.get_dht_info()))
@@ -33,8 +33,9 @@ class User:
         return {
             "ip": self.ip,
             "port": self.receiver_port,
+            "subscriptions": self.subscriptions,
             "subscribers": self.subscribers,
-            "last_post_id": self.last_post_id
+            "last_post_id": self.last_post_id,
         }
 
     async def create_post(self, text):
@@ -64,14 +65,17 @@ class User:
         signature = self.private_key.sign(text)
         return signature
 
-    def verify_signature(self, post):
+    def verify_signature(self, public_key, signature, content):
+        return public_key.verify(signature, content)
+
+    def verify_post_signature(self, post):
         """Verifies the signature of the given post using the author's public key."""
         # Get the author's public key from the post
         author_public_key = post["author"]
 
         # Verify the signature using the author's public key
         message = f"{post['text']}:{post['timestamp']}"
-        return author_public_key.verify(post["signature"], message)
+        return author_public_key.verify(post["signature"], message)         
 
     async def write_message(self, ip, port, message):
         try:
@@ -87,56 +91,124 @@ class User:
 
     async def send_to_peer(self, public_key, message):
         peer_info = await self.server.get(public_key)
+        peer_info = json.loads(peer_info)
         if peer_info is None:
             return (-2, "Unknown Public Key")
         if self.write_message(peer_info["ip"], peer_info["port"], message):
-            return (0, "Message sent")
+            return (0, "Message sent", peer_info)
         else:
             return (-1, "Message not sent", peer_info)
 
-    def send_message(self, public_key, message):
-        return asyncio.run_coroutine_threadsafe(self.send_to_peer(public_key, message), loop=self.loop)
+    def add_subscriber(self, public_key):
+        self.subscribers.append(public_key)
+        
+    def remove_subscriber(self, public_key):
+        self.subscribers.append(public_key)
 
     def add_subscription(self, public_key):
         self.subscriptions.append(public_key)
+        
+    def remove_subscription(self, public_key):
+        self.subscriptions.remove(public_key)
     
-    async def add_subscription_to_dht(self, public_key):
-        self.subscriptions.append(public_key)
+    async def add_subscription_to_foreign_dht(self, public_key):
+        peer_info = await self.server.get(public_key)
+        peer_info = json.loads(peer_info)
+        peer_info["subscribers"].append(self.public_key)
+        await self.server.set(public_key, json.dumps(peer_info))
+        
+    async def remove_subscription_from_foreign_dht(self, public_key):
+        peer_info = await self.server.get(public_key)
+        peer_info = json.loads(peer_info)
+        peer_info["subscribers"].remove(self.public_key)
+        await self.server.set(public_key, json.dumps(peer_info))
 
     async def subscribe(self, public_key):
         message = {
             "op": "subscribe",
-            "user": self.public_key,
+            "sender": self.public_key,
+            "timestamp": time.time(),
+            "signature": None,
         }
-        message["signature"] = self.sign(f"{message['op']}:{message['user']}")
-        direct_ans = self.send_message(public_key, message)
-        if direct_ans[0]:
+        message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['timestamp']}")
+        direct_ans = await self.send_to_peer(public_key, message)
+        # Target doesn't exist
+        if direct_ans[0] == -2:
+            return "Didn't subscribe. Public Key unknown"
+        # Target exists
+        else:
             self.add_subscription(public_key)
-            return "Successfully subscribed"
-        elif direct_ans[0] == -1:
-            peer_subscribers = direct_ans[2]["subscribers"]
-            for sub in peer_subscribers:
-                sub_ans = await self.request_posts(sub, public_key, 0)
-                if sub_ans[0]:
-                    return "Got posts from other subscribers"
-        return "Didn't subscribe"
-
-    def unsubscribe(self, public_key):
+            await self.add_subscription_to_foreign_dht(public_key)
+            
+            # Target is offline
+            if direct_ans[0] == -1:
+                peer_subscribers = direct_ans[2]["subscribers"]
+                for sub in peer_subscribers:
+                    sub_ans = await self.request_posts(sub, public_key, 0)
+                    if sub_ans[0]:
+                        return "Subscribed and got posts from other subscribers"
+                return "Subscribed but didn't get posts from other subscribers"
+            
+            # Target is online
+            return "Successfully subscribed and got posts directly from target"
+            
+    async def unsubscribe(self, public_key):
         message = {
             "op": "unsubscribe",
-            "user": self.public_key,
+            "sender": self.public_key,
+            "timestamp": time.time(),
+            "signature": None,
         }
-        return self.send_message(public_key, message)
+        message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['timestamp']}")
+        ans = await self.send_to_peer(public_key, message)
+        if ans[0] == -2:
+            return "Didn't unsubscribe. Public Key unknown"
+        else:
+            self.remove_subscription(public_key)
+            await self.remove_subscription_from_foreign_dht(public_key)
+            if ans[0]:
+                return "Unsubscribed and warned target"
+            return "Unsubscribed but didn't warn target"
 
-    def request_posts(self, public_key, target_public_key, first_post=0):
+    async def request_posts(self, public_key, target_public_key, first_post=0):
         message = {
             "op": "request posts",
-            "user": self.public_key,
+            "sender": self.public_key,
             "target": target_public_key,
             "first_post": first_post,
+            "timestamp": time.time(),
+            "signature": None,
         }
-        return self.send_message(public_key, message)
+        message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['target']}:{message['first_post']}:{message['timestamp']}")
+        ans = await self.send_to_peer(public_key, message)
+        if ans[0] == -2:
+            return "Didn't request posts. Public Key unknown"
+        elif ans[0] == 0:
+            return "Requested posts"
+        else:
+            return "Didn't request posts. User offline"
 
+    async def send_posts(self, public_key, target_public_key, first_post=0):
+        message = {
+            "op": "send posts",
+            "sender": self.public_key,
+            "posts": [post for post in self.posts if post["author"] == target_public_key and post["id"] >= first_post],
+            "timestamp": time.time(),
+            "signature": None,
+        }
+        message["signature"] = self.sign(f"{message['op']}:{message['user']}:{message['posts']}:{message['timestamp']}")
+        ans = await self.send_to_peer(public_key, message)
+        if ans[0] == -2:
+            return "Didn't send posts. Public Key unknown"
+        elif ans[0] == 0:
+            return "Sent posts"
+        else:
+            return "Didn't send posts. User offline"
+
+    def receive_posts(self, posts):
+        for post in posts:
+            if self.verify_signature(post):
+                self.posts.append(post)
 
     async def generate_timeline(self):
         """Returns a list of posts from the user's subscriptions, ordered by timestamp."""
