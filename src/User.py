@@ -2,6 +2,7 @@ import time
 import json
 import asyncio
 import base64
+import os
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives import serialization
 from kademlia.network import Server
@@ -10,6 +11,7 @@ from Receiver import Receiver
 
 class User:
     def __init__(self, private_key, ip, kademlia_port, receiver_port, bootstrap_nodes=[], persistence_file="data.json"):
+        """User class constructor"""
         # Event loop for io operations
         self.loop = asyncio.get_event_loop()
 
@@ -23,6 +25,8 @@ class User:
         self.last_post_id = -1
         self.posts = {}
         self.persistence_file = persistence_file
+
+        self.load_local_info()
 
         self.loop.run_until_complete(self.server.listen(kademlia_port))
         self.loop.run_until_complete(self.server.bootstrap([(self.ip, kademlia_port)]))
@@ -38,21 +42,54 @@ class User:
         if dht_info != None:
             dht_info = json.loads(dht_info)
             self.subscribers = dht_info["subscribers"]
-        else:
-            self.loop.run_until_complete(self.update_dht())
 
         self.loop.run_until_complete(self.update_timeline())
+        self.loop.run_until_complete(self.sync_subs())
+        self.loop.run_until_complete(self.update_info())
 
         self.receiver.daemon = True
         self.receiver.start()
     
-    def load_available_info():
-        return
+    async def update_info(self):
+        """Updates both local and dht data with the current state"""
+        self.update_local_info()
+        await self.update_dht()
+
+    def update_local_info(self):
+        """Updates local data with the current state"""
+        with open(self.persistence_file, 'w') as json_file:
+            info = {
+            "subscribers": self.subscribers,
+            "subscriptions": self.subscriptions,
+            "posts": json.dumps(self.posts),
+            "last_post_id": self.last_post_id,
+        }
+            json_file.write(json.dumps(info))
+
+    def load_local_info(self):
+        """Fetches local data and updates current state"""
+        if not os.path.exists(self.persistence_file):
+            return
+
+        with open(self.persistence_file) as json_file:
+            try:
+                info = json.load(json_file)
+                self.subscribers = info["subscribers"]
+                self.subscriptions = info["subscriptions"]
+                loaded_posts = json.loads(info["posts"])
+                for key in loaded_posts:
+                    loaded_posts[key] = {int(k): v if k.isnumeric() else k for k, v in loaded_posts[key].items()}
+                self.posts = loaded_posts
+                self.last_post_id = info["last_post_id"]
+            except Exception as e:
+                print("Local Persistence Exception " + str(e))
 
     async def update_dht(self):
+        """Updates dht data with current state"""
         await self.server.set(self.public_key, json.dumps(self.get_dht_info()))
 
     def get_dht_info(self):
+        """Fetches dht data and updates current state"""
         return {
             "ip": self.ip,
             "port": self.receiver_port,
@@ -60,8 +97,9 @@ class User:
             "subscribers": self.subscribers,
             "last_post_id": self.last_post_id,
         }
-    
+
     def get_posts(self):
+        """Returns a list with the user's posts sorted by the timestamp"""
         res_posts = []
         for author in self.posts.keys():
             for id in author.keys():
@@ -73,16 +111,18 @@ class User:
         return res_posts
 
     def serialize_key(self, public_key):
+        """Serializes public key"""
         return public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo).decode('utf-8')
     
     def deserialize_key(self, public_key):
+        """Deserializes public key"""
         try:
             return serialization.load_pem_public_key(public_key.encode('utf-8'))
         except Exception as e:
             print("Deserialize Exception " + str(e))
 
     async def create_post(self, text):
-        """Creates a new post with the given text, signed with the user's private key."""
+        """Creates a new post with the given text, signed with the user's private key"""
         self.last_post_id += 1
         # Create the post with a timestamp and an empty signature
         post = {
@@ -102,22 +142,24 @@ class User:
             self.posts[self.public_key].update(post)
         else:
             self.posts[self.public_key] = post
-        await self.update_dht()
+        await self.update_info()
+        await self.sync_subs()
 
         return post
 
     def sign(self, text):
-        """Signs the given text with the user's private key."""
+        """Signs the given text with the user's private key"""
         # Sign the text using the user's private key
         signature = self.private_key.sign(text.encode('utf-8'))
         return signature
 
     def verify_signature(self, public_key, signature, content):
+        """Verifies the signature of a given content"""
         public_key = self.deserialize_key(public_key)
         return public_key.verify(signature, content)
 
     def verify_post_signature(self, author_key, post):
-        """Verifies the signature of the given post using the author's public key."""
+        """Verifies the signature of the given post using the author's public key"""
 
         # Verify the signature using the author's public key
         message = f"{post['text']}:{post['timestamp']}"
@@ -127,18 +169,15 @@ class User:
             return result == None
         except Exception as e:
             print("Verification Exception " + str(e))
-            return False
-        return 
 
     async def write_message(self, ip, port, message):
+        """Writes message and waits for an answer"""
         try:
             reader, writer = await asyncio.open_connection(ip, port)
             message = json.dumps(message)
             writer.write(message.encode())
             writer.write_eof()
             await writer.drain()
-            writer.close()
-            await writer.wait_closed()
             line = await reader.read(-1)
             
             if line:
@@ -146,11 +185,16 @@ class User:
                 line = line.decode()
                 message = json.loads(line)
                 return (True, message)
+            
+            writer.close()
+            await writer.wait_closed()
         except Exception as e:
             print("Write Exception " + str(e) + " in message " + str(message))
             return (False, e)
 
     async def send_to_peer(self, public_key, message):
+        """Sends a message to peer and processes answer"""
+        print("Getting: " + public_key)
         peer_info = await self.server.get(public_key)
         if peer_info is None:
             return (-2, "Unknown Public Key")
@@ -161,17 +205,21 @@ class User:
         else:
             return (-1, "Message not sent", peer_info)
 
-    def add_subscriber(self, public_key):
+    async def add_subscriber(self, public_key):
         self.subscribers.append(public_key)
+        await self.update_info()
 
-    def remove_subscriber(self, public_key):
+    async def remove_subscriber(self, public_key):
         self.subscribers.append(public_key)
+        await self.update_info()
 
-    def add_subscription(self, public_key):
+    async def add_subscription(self, public_key):
         self.subscriptions.append(public_key)
+        await self.update_info()
 
-    def remove_subscription(self, public_key):
+    async def remove_subscription(self, public_key):
         self.subscriptions.remove(public_key)
+        await self.update_info()
 
     async def add_subscription_to_foreign_dht(self, public_key):
         peer_info = await self.server.get(public_key)
@@ -199,14 +247,13 @@ class User:
             # "signature": None,
         }
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['timestamp']}")
-        print("DEBUG_INSIDE_SUB_DEST:" + str(public_key))
         direct_ans = await self.send_to_peer(public_key, message)
         # Target doesn't exist
         if direct_ans[0] == -2:
             return (-2, "Didn't subscribe. Public Key unknown")
         # Target exists
         else:
-            self.add_subscription(public_key)
+            await self.add_subscription(public_key)
             await self.add_subscription_to_foreign_dht(public_key)
 
             # Target is offline
@@ -220,7 +267,8 @@ class User:
                 return (-1, "Subscribed but didn't get posts from other subscribers")
 
             # Target is online
-            self.receive_posts(direct_ans[2]["author"], json.loads(direct_ans[2]["posts"]))
+            if direct_ans[2]["posts"] != {}:
+                await self.receive_posts(direct_ans[2]["author"], json.loads(direct_ans[2]["posts"]))
             return (0, "Successfully subscribed and got posts directly from target")
 
     async def unsubscribe(self, public_key):
@@ -235,7 +283,7 @@ class User:
         if ans[0] == -2:
             return (-2, "Didn't unsubscribe. Public Key unknown")
         else:
-            self.remove_subscription(public_key)
+            await self.remove_subscription(public_key)
             await self.remove_subscription_from_foreign_dht(public_key)
             if ans[0]:
                 return (0, "Unsubscribed and warned target")
@@ -269,18 +317,17 @@ class User:
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['target']}:{message['first_post']}:{message['timestamp']}")
         if await self.server.get(target_public_key) == None:
             return (-3, "Didn't request posts. Target Public Key unknown")
-        print("DEBUG_INSIDE_REQ_DEST:" + str(public_key))
         ans = await self.send_to_peer(public_key, message)
         if ans[0] == -2:
             return (-2, "Didn't request posts. Interlocutor Public Key unknown")
         elif ans[0] == 0:
-            self.receive_posts(ans[2]["author"], json.loads(ans[2]["posts"]))
+            if ans[2]["posts"] != {}:
+                await self.receive_posts(ans[2]["author"], json.loads(ans[2]["posts"]))
             return (0, "Got posts")
         else:
             return (-1, "Didn't request posts. User offline")
 
-    def receive_posts(self, author_key, posts):
-        print("DEBUG_INSIDE_REC_SELF:" + str(self.public_key))
+    async def receive_posts(self, author_key, posts):
         for item in posts.items():
             if self.verify_post_signature(author_key, item[1]):
                 if author_key in self.posts.keys():
@@ -288,6 +335,7 @@ class User:
                         self.posts[author_key].update({int(item[0]): item[1]})
                 else:
                     self.posts[author_key]= {int(item[0]): item[1]}
+        await self.update_info()
                 
     async def send_sync(self, public_key):
         message = {
@@ -305,6 +353,10 @@ class User:
             return (0, "Sent sync")
         else:
             return (-1, "Didn't send sync. User offline")
+    
+    async def sync_subs(self):
+        for sub in self.subscribers:
+            await self.send_sync(sub)
         
     async def update_timeline(self):
         for public_key in self.subscriptions:

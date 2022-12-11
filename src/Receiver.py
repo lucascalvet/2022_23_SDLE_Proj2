@@ -36,8 +36,9 @@ class Receiver(Thread):
                     self.sync_handler(writer, message)
                 else:
                     print("Invalid operation")
+                    writer.close()
 
-            writer.close()
+            #writer.close()
         except Exception as e:
             print("Receiver Exception " + str(e) + " in operation " + str(operation))
 
@@ -51,7 +52,7 @@ class Receiver(Thread):
             await writer.wait_closed()
             return True
         except Exception as e:
-            print("Write Exception " + str(e) + " in message " + str(message))
+            print("Receiver Write Exception " + str(e) + " in response " + str(message))
             return False
     
     async def write_ack(self, writer):
@@ -77,39 +78,35 @@ class Receiver(Thread):
             await self.write_res(writer, message)
      
         try:
-            posts_to_send = {key: self.posts[target_public_key][key] for key in self.posts[target_public_key] if key >= first_post}
+            posts_to_send = {key: self.user.posts[target_public_key][key] for key in self.user.posts[target_public_key] if key >= first_post}
             posts_to_send = json.dumps(posts_to_send)
         except Exception as e:
             print("JSON Exception " + str(e))
      
         message["posts"] = posts_to_send
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['author']}:{message['first_id']}:{message['posts']}:{message['timestamp']}")
-        print("DEBUG_INSIDE_SEND_DEST:" + str(public_key))
         await self.write_res(writer, message)
 
     def subscribe_handler(self, writer, message):
-        print("DEBUG_SUBHAND_SELF: " + str(self.user.public_key))
-        print("DEBUG_SUBHAND_SENDDEST: " + str(message["sender"]))
-        self.user.add_subscriber(message["sender"])
+        asyncio.run_coroutine_threadsafe(self.user.add_subscriber(message["sender"]), loop=self.user.loop)
         asyncio.run_coroutine_threadsafe(self.send_posts(writer, message["sender"], self.user.public_key), loop=self.user.loop)
     
     def unsubscribe_handler(self, writer, message):
-        self.user.remove_subscriber(message["sender"])
+        asyncio.run_coroutine_threadsafe(self.user.remove_subscriber(message["sender"]), loop=self.user.loop)
         asyncio.run_coroutine_threadsafe(self.write_ack(writer), loop=self.user.loop)
         
     def request_posts_handler(self, writer, message):
-        print("DEBUG_REQUESTHAND_SELF: " + str(self.user.public_key))
-        print("DEBUG_REQUESTHAND_SENDDEST: " + str(message["sender"]))
         asyncio.run_coroutine_threadsafe(self.send_posts(writer, message["sender"], message["target"], message["first_post"]), loop=self.user.loop)
         
     def sync_handler(self, writer, message):
         asyncio.run_coroutine_threadsafe(self.write_ack(writer), loop=self.user.loop)
-        if message["sender"] in self.user.subscription:
-            if message["sender"] in self.posts and len(self.posts[message["sender"]]) > 0:
-                post_latest_id = int(max(self.posts[message["sender"]].keys()))
+        if message["sender"] in self.user.subscriptions:
+            if message["sender"] in self.user.posts and len(self.user.posts[message["sender"]]) > 0:
+                post_latest_id = int(max(self.user.posts[message["sender"]].keys()))
                 if int(message["last_post_id"]) > post_latest_id:
                     asyncio.run_coroutine_threadsafe(self.user.find_posts(message["sender"], post_latest_id + 1), loop=self.user.loop)
             else:
                 asyncio.run_coroutine_threadsafe(self.user.find_posts(message["sender"], 0), loop=self.user.loop)
+        
     
     

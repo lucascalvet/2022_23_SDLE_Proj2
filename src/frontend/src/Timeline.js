@@ -24,6 +24,7 @@ import {
   Snackbar,
 } from "@mui/material/";
 import ShareIcon from "@mui/icons-material/Share";
+import MuiAlert from "@mui/material/Alert";
 import { Person, QrCode2, QrCodeScanner } from "@mui/icons-material";
 import QRCode from "react-qr-code";
 import Html5QrcodePlugin from "./Html5QrcodePlugin";
@@ -38,8 +39,13 @@ export default function TwitterFeed() {
   const [subscriptions, setSubscriptions] = React.useState([]);
   const [subscribed, setSubscribed] = React.useState([]);
   const [postText, setPostText] = React.useState([]);
+  const [detail, setDetail] = React.useState("");
 
-  const API_ENDPOINT = "http://localhost:8000/";
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has("api"))
+    return (<div>You need to define the API endpoint</div>)
+
+  const API_ENDPOINT = params.get("api")
 
   const fetchData = async () => {
     const response = await fetch(API_ENDPOINT + "timeline", {
@@ -75,26 +81,31 @@ export default function TwitterFeed() {
   };
   const fetchFollow = async (pubkey, alias) => {
     const response = await fetch(
-      `${API_ENDPOINT}subscribe?pubkey=${pubkey}&alias=${alias}`,
+      API_ENDPOINT + "subscribe?" + new URLSearchParams({ pubkey: pubkey, alias: alias }),
       {
         method: "GET",
         mode: "cors",
       }
     );
     const json = await response.json();
+    setDetail(json.detail);
     //setSubscribed(json);
   };
   const fetchUnfollow = async (pubkey) => {
     const response = await fetch(
-      `${API_ENDPOINT}unsubscribe?pubkey=${pubkey}`,
+      API_ENDPOINT + "unsubscribe?" + new URLSearchParams({ pubkey: pubkey }),
       {
         method: "GET",
         mode: "cors",
       }
     );
     const json = await response.json();
-    //setSubscribed(json);
+    setDetail(json.detail);
   };
+
+  const Alert = React.forwardRef(function Alert(props, ref) {
+    return <MuiAlert elevation={6} ref={ref} variant="filled" {...props} />;
+  });
 
   const CopyToClipboardButton = (props) => {
     const [open, setOpen] = useState(false);
@@ -118,6 +129,76 @@ export default function TwitterFeed() {
     );
   };
 
+  const FollowButton = (props) => {
+    const [open, setOpen] = useState(false);
+    const handleClick = () => {
+      handleFollow();
+      setOpen(true);
+    };
+
+    return (
+      <>
+        <Button
+          style={{ borderRadius: "5px", marginLeft: "10px" }}
+          variant="contained"
+          color="primary"
+          onClick={handleClick}
+        >
+          Follow
+        </Button>
+        <Snackbar
+          open={open}
+          onClose={() => setOpen(false)}
+          autoHideDuration={6000}
+          message={"Followed " + props.alias}
+        >
+          <Alert
+            onClose={() => setOpen(false)}
+            severity="info"
+            sx={{ width: "100%" }}
+          >
+            {detail}
+          </Alert>
+        </Snackbar>
+      </>
+    );
+  };
+
+  const UnfollowButton = (props) => {
+    const [open, setOpen] = useState(false);
+    const handleClick = () => {
+      handleUnfollow(props.pubkey);
+      setOpen(true);
+    };
+
+    return (
+      <>
+        <Button
+          style={{ borderRadius: "5px" }}
+          variant="contained"
+          color="primary"
+          onClick={handleClick}
+        >
+          Unfollow
+        </Button>
+        <Snackbar
+          open={open}
+          onClose={() => setOpen(false)}
+          autoHideDuration={6000}
+          message={"Unfollowed " + props.alias}
+        >
+          <Alert
+            onClose={() => setOpen(false)}
+            severity="info"
+            sx={{ width: "100%" }}
+          >
+            {detail}
+          </Alert>
+        </Snackbar>
+      </>
+    );
+  };
+
   useEffect(() => {
     fetchData();
     fetchPubKey();
@@ -128,7 +209,7 @@ export default function TwitterFeed() {
       fetchSubscriptions();
       fetchSubscribed();
       fetchData();
-    }, 3000);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, []);
@@ -161,7 +242,7 @@ export default function TwitterFeed() {
 
   const handleUnfollow = (pubkey) => {
     // Code to unfollow a user goes here
-    fetchUnfollow(pubkey);
+    return fetchUnfollow(pubkey);
   };
 
   const handleAliasChange = (event) => {
@@ -189,6 +270,7 @@ export default function TwitterFeed() {
     //TODO: Do the follow with the key in decodedText
     console.log(decodedText);
     console.log(decodedResult);
+    fetchFollow(decodedText, "");
   };
 
   /* const unixTimestampToString = (timestamp) => {
@@ -327,14 +409,7 @@ export default function TwitterFeed() {
                 value={alias}
                 onChange={handleAliasChange}
               />
-              <Button
-                style={{ borderRadius: "5px", marginLeft: "10px" }}
-                variant="contained"
-                color="primary"
-                onClick={handleFollow}
-              >
-                Follow
-              </Button>
+              <FollowButton pubkey={searchQuery} alias={alias} />
             </Box>
           }
         />
@@ -363,7 +438,7 @@ export default function TwitterFeed() {
                   let found;
                   if (
                     (found = subscriptions.find((sub) => {
-                      return sub.pubkey === user.pubkey;
+                      return sub.pubkey === user.pubkey && sub.alias;
                     }))
                   )
                     return (
@@ -431,14 +506,8 @@ export default function TwitterFeed() {
                         secondary={user.pubkey}
                         secondaryTypographyProps={{ fontSize: 10 }}
                       />
-                      <Button
-                        style={{ borderRadius: "5px" }}
-                        variant="contained"
-                        color="primary"
-                        onClick={() => handleUnfollow(user.pubkey)}
-                      >
-                        Unfollow
-                      </Button>
+                      <CopyToClipboardButton pubkey={user.pubkey} />
+                      <UnfollowButton pubkey={user.pubkey} alias={user.alias} />
                     </ListItem>
                     <Divider />
                   </React.Fragment>

@@ -66,9 +66,9 @@ if __name__ == "__main__":
     loop.create_task(user.print_timeline())
     '''
 
-    alice = User(Ed25519PrivateKey.generate(), "127.0.0.1", 1233, 5001)
+    alice = User(Ed25519PrivateKey.generate(), "127.0.0.1", 1233, 5007, persistence_file="alice_vieira.json")
 
-    bob = User(Ed25519PrivateKey.generate(), "127.0.0.2", 1234, 5002, [("127.0.0.1", 1233)])
+    bob = User(Ed25519PrivateKey.generate(), "127.0.0.2", 1234, 5002, [("127.0.0.1", 1233)], persistence_file="bob_vance.json")
 
     print("ALICE KEY:" + str(alice.public_key))
     print("BOB KEY:" + str(bob.public_key))
@@ -99,13 +99,13 @@ if __name__ == "__main__":
         
     print("ALICE POSTS3:" + str(alice.posts))
 
-    bob.loop.run_until_complete(bob.update_timeline())
+    #bob.loop.run_until_complete(bob.update_timeline())
     
-    bob.loop.run_until_complete(bob.update_timeline())
-            
+    #bob.loop.run_until_complete(bob.update_timeline())
+    
     print("BOB POSTS3:" + str(bob.posts))
     
-    bob.loop.run_until_complete(bob.unsubscribe(alice.public_key))
+    #bob.loop.run_until_complete(bob.unsubscribe(alice.public_key))
         
     print("ALICE SUBSCRIB3:" + str(alice.subscribers))
     
@@ -116,12 +116,7 @@ if __name__ == "__main__":
     print("ALICE POSTS4:" + str(alice.posts))
     
     print("BOB POSTS4:" + str(bob.posts))
+        
+    #bob.loop.run_until_complete(bob.update_timeline())
     
-    time.sleep(3)
-    
-    bob.loop.run_until_complete(bob.update_timeline())
-    
-    print("BOB POSTS5:" + str(bob.posts))
-    
-    time.sleep(3)
-
+    #print("BOB POSTS5:" + str(bob.posts))
