@@ -8,7 +8,7 @@ from Receiver import Receiver
 
 
 class User:
-    def __init__(self, private_key, ip, kademlia_port, receiver_port, subscriptions=[], subscribers=[]):
+    def __init__(self, private_key, ip, kademlia_port, receiver_port, persistence_file="data.json"):
         # Event loop for io operations
         self.loop = asyncio.get_event_loop()
 
@@ -17,29 +17,35 @@ class User:
         self.receiver_port = receiver_port
         self.server = Server()
         self.receiver = Receiver(self)
-        self.subscriptions = subscriptions
-        self.subscribers = subscribers
+        self.subscriptions = []
+        self.subscribers = []
         self.last_post_id = -1
         self.posts = []
+        self.persistence_file = persistence_file
 
         self.loop.run_until_complete(self.server.listen(kademlia_port))
-        self.loop.run_until_complete(self.server.bootstrap([(self.ip, kademlia_port)]))
+        self.loop.run_until_complete(
+            self.server.bootstrap([(self.ip, kademlia_port)]))
 
         # Extract the public key from the private key
         self.public_key = self.private_key.public_key()
-        
+
         # Update state using the data on the DHT
-        dht_info = self.loop.run_until_complete(self.server.get(self.public_key))
+        dht_info = self.loop.run_until_complete(
+            self.server.get(self.public_key))
         if dht_info != None:
             dht_info = json.loads(dht_info)
             self.subscribers = dht_info["subscribers"]
         else:
             self.loop.run_until_complete(self.update_dht())
-        
+
         self.loop.run_until_complete(self.update_timeline())
 
         self.receiver.daemon = True
         self.receiver.start()
+    
+    def load_available_info():
+        return
 
     async def update_dht(self):
         await self.server.set(self.public_key, json.dumps(self.get_dht_info()))
@@ -52,10 +58,10 @@ class User:
             "subscribers": self.subscribers,
             "last_post_id": self.last_post_id,
         }
-    
+
     def serialize_key(self, public_key):
         return str(public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo))
-    
+
     def deserialize_key(self, public_key):
         return serialization.load_pem_public_key(public_key)
 
@@ -161,7 +167,7 @@ class User:
             "op": "subscribe",
             "sender": self.serialize_key(self.public_key),
             "timestamp": time.time(),
-            #"signature": None,
+            # "signature": None,
         }
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['timestamp']}")
         direct_ans = await self.send_to_peer(public_key, message)
@@ -190,7 +196,7 @@ class User:
             "op": "unsubscribe",
             "sender": self.serialize_key(self.public_key),
             "timestamp": time.time(),
-            #"signature": None,
+            # "signature": None,
         }
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['timestamp']}")
         ans = await self.send_to_peer(public_key, message)
@@ -217,7 +223,7 @@ class User:
             return (-1, "Didn't request posts. Neither target nor subscribers were available")
         else:
             return direct_ans
-        
+
     async def request_posts(self, public_key, target_public_key, first_post=0):
         message = {
             "op": "request posts",
@@ -225,7 +231,7 @@ class User:
             "target": self.serialize_key(target_public_key),
             "first_post": first_post,
             "timestamp": time.time(),
-            #"signature": None,
+            # "signature": None,
         }
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['target']}:{message['first_post']}:{message['timestamp']}")
         if await self.server.get(target_public_key) == None:
@@ -240,9 +246,9 @@ class User:
 
     async def send_posts(self, public_key, target_public_key, first_post=0):
         print("EUREKA")
-        #if target_public_key not in self.posts.keys():
-            #print("FRED START")
-            #return "Didn't send posts. Didn't have any ;("
+        # if target_public_key not in self.posts.keys():
+        #print("FRED START")
+        # return "Didn't send posts. Didn't have any ;("
         message = {
             "op": "send posts",
             "sender": self.serialize_key(self.public_key),
@@ -250,7 +256,7 @@ class User:
             "first_id": first_post,
             "posts": [self.posts[target_public_key][post_id] for post_id in self.posts[target_public_key].keys() if post_id >= first_post],
             "timestamp": time.time(),
-            #"signature": None,
+            # "signature": None,
         }
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['author']}:{message['first_id']}:{message['posts']}:{message['timestamp']}")
         ans = await self.send_to_peer(public_key, message)
@@ -272,8 +278,10 @@ class User:
                     self.posts[author_key].update({current_id: post})
                 else:
                     self.posts[author_key] = {current_id: post}
+            else:
+                print("Invalid signature!")
             current_id += 1
-        
+
     async def update_timeline(self):
         for public_key in self.subscriptions:
             if public_key in self.posts and len(self.posts[public_key]) > 0:
