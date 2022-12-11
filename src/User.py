@@ -132,25 +132,32 @@ class User:
 
     async def write_message(self, ip, port, message):
         try:
-            _, writer = await asyncio.open_connection(ip, port)
+            reader, writer = await asyncio.open_connection(ip, port)
             message = json.dumps(message)
             writer.write(message.encode())
             writer.write_eof()
             await writer.drain()
             writer.close()
             await writer.wait_closed()
-            return True
+            line = await reader.read(-1)
+            
+            if line:
+                line = line.strip()
+                line = line.decode()
+                message = json.loads(line)
+                return (True, message)
         except Exception as e:
             print("Write Exception " + str(e) + " in message " + str(message))
-            return False
+            return (False, e)
 
     async def send_to_peer(self, public_key, message):
         peer_info = await self.server.get(public_key)
         if peer_info is None:
             return (-2, "Unknown Public Key")
         peer_info = json.loads(peer_info)
-        if await self.write_message(peer_info["ip"], peer_info["port"], message):
-            return (0, "Message sent", peer_info)
+        ans = await self.write_message(peer_info["ip"], peer_info["port"], message)
+        if ans != None and ans[0]:
+            return (0, "Message sent", ans[1])
         else:
             return (-1, "Message not sent", peer_info)
 
@@ -213,6 +220,7 @@ class User:
                 return (-1, "Subscribed but didn't get posts from other subscribers")
 
             # Target is online
+            self.receive_posts(direct_ans[2]["author"], json.loads(direct_ans[2]["posts"]))
             return (0, "Successfully subscribed and got posts directly from target")
 
     async def unsubscribe(self, public_key):
@@ -266,38 +274,10 @@ class User:
         if ans[0] == -2:
             return (-2, "Didn't request posts. Interlocutor Public Key unknown")
         elif ans[0] == 0:
-            return (0, "Requested posts")
+            self.receive_posts(ans[2]["author"], json.loads(ans[2]["posts"]))
+            return (0, "Got posts")
         else:
             return (-1, "Didn't request posts. User offline")
-
-    async def send_posts(self, public_key, target_public_key, first_post=0):
-        if target_public_key not in self.posts.keys():
-            return (-3, "Didn't send posts. Didn't have any ;(")
-     
-        try:
-            posts_to_send = {key: self.posts[target_public_key][key] for key in self.posts[target_public_key] if key >= first_post}
-            posts_to_send = json.dumps(posts_to_send)
-        except Exception as e:
-            print("JSON Exception " + str(e))
-     
-        message = {
-            "op": "send posts",
-            "sender": self.public_key,
-            "author": target_public_key,
-            "first_id": first_post,
-            "posts": posts_to_send,
-            "timestamp": time.time(),
-            # "signature": None,
-        }
-        #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['author']}:{message['first_id']}:{message['posts']}:{message['timestamp']}")
-        print("DEBUG_INSIDE_SEND_DEST:" + str(public_key))
-        ans = await self.send_to_peer(public_key, message)
-        if ans[0] == -2:
-            return (-2, "Didn't send posts. Public Key unknown")
-        elif ans[0] == 0:
-            return (0, "Sent posts")
-        else:
-            return (-1, "Didn't send posts. User offline")
 
     def receive_posts(self, author_key, posts):
         print("DEBUG_INSIDE_REC_SELF:" + str(self.public_key))
@@ -312,29 +292,25 @@ class User:
     async def send_sync(self, public_key):
         message = {
             "op": "sync",
-            "last_post_id": self.last_post_id,
             "sender": self.public_key,
+            "last_post_id": self.last_post_id,
             "timestamp": time.time(),
             #"signature": None,
         }
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['timestamp']}")
         ans = await self.send_to_peer(public_key, message)
         if ans[0] == -2:
-            return (-2, "Didn't unsubscribe. Public Key unknown")
+            return (-2, "Didn't send sync. Public Key unknown")
+        elif ans[0] == 0:
+            return (0, "Sent sync")
         else:
-            self.remove_subscription(public_key)
-            await self.remove_subscription_from_foreign_dht(public_key)
-            if ans[0]:
-                return (0, "Unsubscribed and warned target")
-            return (-1, "Unsubscribed but didn't warn target")
+            return (-1, "Didn't send sync. User offline")
         
     async def update_timeline(self):
         for public_key in self.subscriptions:
             if public_key in self.posts and len(self.posts[public_key]) > 0:
                 post_latest_id = int(max(self.posts[public_key].keys()))
-                print("D1:" + str(public_key) + ":" + str(post_latest_id + 1))
                 await self.find_posts(public_key, post_latest_id + 1)
             else:
-                print("D2:" + str(public_key))
                 await self.find_posts(public_key, 0)
         return self.posts
