@@ -47,16 +47,16 @@ export default function TwitterFeed() {
   };  
 
   const handleTweetSubmit = async () => {
-    // make a request to the API to post the tweet
-    const API_ENDPOINT = "http://localhost:8000/post";
-    await fetch(API_ENDPOINT, {
+    // make a request to the API to post
+    const API_ENDPOINT = "http://localhost:8000/";
+    await fetch(API_ENDPOINT + "post", {
       method: 'POST',
       mode: 'cors',
       body: JSON.stringify({ text: tweetText }),
     });
 
-    // fetch the updated list of tweets and update the posts state variable
-    const response = await fetch(API_ENDPOINT, {
+    // fetch the updated list of posts and update the posts state variable
+    const response = await fetch(API_ENDPOINT + "timeline", {
       method: 'GET',
       mode: 'cors',
     });
