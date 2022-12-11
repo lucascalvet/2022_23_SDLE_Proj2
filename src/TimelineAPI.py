@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Body
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
-from .User import User
+#from .User import User
 import time 
 from fastapi.middleware.cors import CORSMiddleware
 # Create the User
@@ -61,6 +61,9 @@ async def root():
 async def get_timeline():
     return posts
 
+@app.get("/pubkey")
+async def get_public_key():
+    return {"pubkey": "MCowBQYDK2VwAyEAaGHMrIKC3h27SO99YbKEUfUEXDOXjJHYOA5uWHR/rCU="}
 
 @app.post("/post")
 async def add_post(text: str = Body()):

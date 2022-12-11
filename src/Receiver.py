@@ -13,11 +13,13 @@ class Receiver(Thread):
 
     async def serve(self):
         server = await asyncio.start_server(self.request_handler, self.user.ip, self.user.receiver_port)
-        server.serve_forever()
+        await server.serve_forever()
     
     async def request_handler(self, reader, writer):
-        line = await reader.read(-1)
-
+        print("FRED START")
+        print(str(reader))
+        line = await reader.read(1)
+        print("FRED: " + str(line))
         if line:
             line = line.strip()
             line = line.decode()
@@ -48,5 +50,5 @@ class Receiver(Thread):
         asyncio.run_coroutine_threadsafe(self.user.send_posts(message["user"], message["target"], message["first_post"]), loop=self.user.loop)
     
     def send_posts_handler(self, message):
-        asyncio.run_coroutine_threadsafe(self.user.receive_posts(message["posts"]), loop=self.user.loop)
+        asyncio.run_coroutine_threadsafe(self.user.receive_posts(message["author"], message["first_id"], message["posts"]), loop=self.user.loop)
     

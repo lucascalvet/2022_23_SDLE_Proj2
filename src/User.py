@@ -2,8 +2,9 @@ import time
 import json
 import asyncio
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives import serialization
 from kademlia.network import Server
-from .Receiver import Receiver
+from Receiver import Receiver
 
 
 class User:
@@ -18,13 +19,28 @@ class User:
         self.receiver = Receiver(self)
         self.subscriptions = subscriptions
         self.subscribers = subscribers
+        self.last_post_id = -1
         self.posts = []
 
         self.loop.run_until_complete(self.server.listen(kademlia_port))
+        self.loop.run_until_complete(self.server.bootstrap([(self.ip, kademlia_port)]))
 
         # Extract the public key from the private key
         self.public_key = self.private_key.public_key()
-        # TODO: Check DHT 
+        self.str_public_key = str(self.public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo))
+        
+        # Update state using the data on the DHT
+        dht_info = self.loop.run_until_complete(self.server.get(self.public_key))
+        if dht_info != None:
+            dht_info = json.loads(dht_info)
+            self.subscribers = dht_info["subscribers"]
+        else:
+            self.loop.run_until_complete(self.update_dht())
+        
+        self.loop.run_until_complete(self.update_timeline())
+
+        self.receiver.daemon = True
+        self.receiver.start()
 
     async def update_dht(self):
         await self.server.set(self.public_key, json.dumps(self.get_dht_info()))
@@ -40,18 +56,22 @@ class User:
 
     async def create_post(self, text):
         """Creates a new post with the given text, signed with the user's private key."""
-        self.info["id_last_post"] += 1
+        self.last_post_id += 1
         # Create the post with a timestamp and an empty signature
         post = {
-            "id": self.info["id_last_post"],
-            "text": text,
-            "timestamp": time.time(),
-            "author": self.public_key,
-            "signature": None,
+            self.public_key:
+            {
+                self.last_post_id:
+                {
+                    "text": text,
+                    "timestamp": time.time(),
+                    "signature": None,
+                }
+            }
         }
 
         # Sign the message with the post's timestamp
-        message = f"{post['text']}:{post['timestamp']}"
+        message = f"{post[self.public_key][self.last_post_id]['text']}:{post[self.public_key][self.last_post_id]['timestamp']}"
         post["signature"] = self.sign(message)
 
         self.posts.append(post)
@@ -62,96 +82,103 @@ class User:
     def sign(self, text):
         """Signs the given text with the user's private key."""
         # Sign the text using the user's private key
-        signature = self.private_key.sign(text)
+        signature = self.private_key.sign(bytes(text, 'ascii'))
         return signature
 
     def verify_signature(self, public_key, signature, content):
         return public_key.verify(signature, content)
 
-    def verify_post_signature(self, post):
+    def verify_post_signature(self, author_key, post):
         """Verifies the signature of the given post using the author's public key."""
-        # Get the author's public key from the post
-        author_public_key = post["author"]
 
         # Verify the signature using the author's public key
         message = f"{post['text']}:{post['timestamp']}"
-        return author_public_key.verify(post["signature"], message)         
+        return author_key.verify(post["signature"], bytes(message, 'ascii'))
 
     async def write_message(self, ip, port, message):
         try:
             _, writer = await asyncio.open_connection(ip, port)
+            json.dumps(message)
             writer.write(message.encode())
             writer.write_eof()
             await writer.drain()
             writer.close()
             await writer.wait_closed()
             return True
-        except Exception:
+        except Exception as e:
             return False
 
     async def send_to_peer(self, public_key, message):
         peer_info = await self.server.get(public_key)
-        peer_info = json.loads(peer_info)
         if peer_info is None:
             return (-2, "Unknown Public Key")
-        if self.write_message(peer_info["ip"], peer_info["port"], message):
+        peer_info = json.loads(peer_info)
+        if await self.write_message(peer_info["ip"], peer_info["port"], message):
             return (0, "Message sent", peer_info)
         else:
             return (-1, "Message not sent", peer_info)
 
     def add_subscriber(self, public_key):
         self.subscribers.append(public_key)
-        
+
     def remove_subscriber(self, public_key):
         self.subscribers.append(public_key)
 
     def add_subscription(self, public_key):
         self.subscriptions.append(public_key)
-        
+
     def remove_subscription(self, public_key):
         self.subscriptions.remove(public_key)
-    
+
     async def add_subscription_to_foreign_dht(self, public_key):
         peer_info = await self.server.get(public_key)
+        if peer_info is None:
+            return (-2, "Unknown Public Key")
         peer_info = json.loads(peer_info)
-        peer_info["subscribers"].append(self.public_key)
+        print(peer_info)
+        peer_info["subscribers"].append(self.str_public_key)
+        print(peer_info)
         await self.server.set(public_key, json.dumps(peer_info))
-        
+        return (0, "Added subscription to DHT with success")
+
     async def remove_subscription_from_foreign_dht(self, public_key):
         peer_info = await self.server.get(public_key)
+        if peer_info is None:
+            return (-2, "Unknown Public Key")
         peer_info = json.loads(peer_info)
-        peer_info["subscribers"].remove(self.public_key)
+        peer_info["subscribers"].remove(self.str_public_key)
         await self.server.set(public_key, json.dumps(peer_info))
+        return (0, "Removed subscription from DHT with success")
 
     async def subscribe(self, public_key):
         message = {
             "op": "subscribe",
             "sender": self.public_key,
             "timestamp": time.time(),
-            "signature": None,
         }
-        message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['timestamp']}")
+        message["signature"] = self.sign(
+            f"{message['op']}:{message['sender']}:{message['timestamp']}")
         direct_ans = await self.send_to_peer(public_key, message)
         # Target doesn't exist
         if direct_ans[0] == -2:
-            return "Didn't subscribe. Public Key unknown"
+            return (-2, "Didn't subscribe. Public Key unknown")
         # Target exists
         else:
             self.add_subscription(public_key)
             await self.add_subscription_to_foreign_dht(public_key)
-            
+
             # Target is offline
             if direct_ans[0] == -1:
                 peer_subscribers = direct_ans[2]["subscribers"]
                 for sub in peer_subscribers:
                     sub_ans = await self.request_posts(sub, public_key, 0)
                     if sub_ans[0]:
-                        return "Subscribed and got posts from other subscribers"
-                return "Subscribed but didn't get posts from other subscribers"
-            
+                        return (1, "Subscribed and got posts from other subscribers")
+                return (-1, "Subscribed but didn't get posts from other subscribers")
+
             # Target is online
-            return "Successfully subscribed and got posts directly from target"
-            
+            return (0, "Successfully subscribed and got posts directly from target")
+
     async def unsubscribe(self, public_key):
         message = {
             "op": "unsubscribe",
@@ -159,17 +186,33 @@ class User:
             "timestamp": time.time(),
             "signature": None,
         }
-        message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['timestamp']}")
+        message["signature"] = self.sign(
+            f"{message['op']}:{message['sender']}:{message['timestamp']}")
         ans = await self.send_to_peer(public_key, message)
         if ans[0] == -2:
-            return "Didn't unsubscribe. Public Key unknown"
+            return (-2, "Didn't unsubscribe. Public Key unknown")
         else:
             self.remove_subscription(public_key)
             await self.remove_subscription_from_foreign_dht(public_key)
             if ans[0]:
-                return "Unsubscribed and warned target"
-            return "Unsubscribed but didn't warn target"
+                return (0, "Unsubscribed and warned target")
+            return (-1, "Unsubscribed but didn't warn target")
 
+    async def find_posts(self, target_public_key, first_post=0):
+        direct_ans = await self.request_posts(target_public_key, target_public_key, first_post)
+        if direct_ans[0] == -1:
+            target_info = await self.server.get(target_public_key)
+            if target_info == None:
+                return (-2, "Didn't request posts. Target Public Key unknown")
+            target_info = json.loads(target_info)
+            for sub in target_info["subscribers"]:
+                sub_ans = await self.request_posts(sub, target_public_key, first_post)
+                if sub_ans[0]:
+                    return (1, "Requested posts to other subscribers")
+            return (-1, "Didn't request posts. Neither target nor subscribers were available")
+        else:
+            return direct_ans
+        
     async def request_posts(self, public_key, target_public_key, first_post=0):
         message = {
             "op": "request posts",
@@ -179,61 +222,57 @@ class User:
             "timestamp": time.time(),
             "signature": None,
         }
-        message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['target']}:{message['first_post']}:{message['timestamp']}")
+        message["signature"] = self.sign(
+            f"{message['op']}:{message['sender']}:{message['target']}:{message['first_post']}:{message['timestamp']}")
+        if await self.server.get(target_public_key) == None:
+            return (-3, "Didn't request posts. Target Public Key unknown")
         ans = await self.send_to_peer(public_key, message)
         if ans[0] == -2:
-            return "Didn't request posts. Public Key unknown"
+            return (-2, "Didn't request posts. Interlocutor Public Key unknown")
         elif ans[0] == 0:
-            return "Requested posts"
+            return (0, "Requested posts")
         else:
-            return "Didn't request posts. User offline"
+            return (-1, "Didn't request posts. User offline")
 
     async def send_posts(self, public_key, target_public_key, first_post=0):
+        if target_public_key not in self.posts.keys():
+            return "Didn't send posts. Didn't have any ;("
         message = {
             "op": "send posts",
             "sender": self.public_key,
-            "posts": [post for post in self.posts if post["author"] == target_public_key and post["id"] >= first_post],
+            "author": target_public_key,
+            "first_id": first_post,
+            "posts": [self.posts[target_public_key][post_id] for post_id in self.posts[target_public_key].keys() if post_id >= first_post],
             "timestamp": time.time(),
             "signature": None,
         }
-        message["signature"] = self.sign(f"{message['op']}:{message['user']}:{message['posts']}:{message['timestamp']}")
+        message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['author']}:{message['first_id']}:{message['posts']}:{message['timestamp']}")
         ans = await self.send_to_peer(public_key, message)
         if ans[0] == -2:
-            return "Didn't send posts. Public Key unknown"
+            print("FRED -2")
+            return (-2, "Didn't send posts. Public Key unknown")
         elif ans[0] == 0:
-            return "Sent posts"
+            print("FRED 0")
+            return (0, "Sent posts")
         else:
-            return "Didn't send posts. User offline"
+            print("FRED -1")
+            return (-1, "Didn't send posts. User offline")
 
-    def receive_posts(self, posts):
+    def receive_posts(self, author_key, first_id, posts):
+        current_id = first_id
         for post in posts:
-            if self.verify_signature(post):
-                self.posts.append(post)
-
-    async def generate_timeline(self):
-        """Returns a list of posts from the user's subscriptions, ordered by timestamp."""
-        # Query the network for posts from each of the user's subscriptions
-        timeline = []
-
-        # TODO: get the public key for each subscription
-        for subscription in self.subscriptions:
-            posts = await self.server.get(subscription)
-
-            # Filter out any posts with invalid signatures
-            verified_posts = [
-                post for post in posts if self.verify_signature(post)
-            ]
-
-            # Add the verified posts to the timeline
-            timeline.extend(verified_posts)
-
-        # Sort the timeline by the timestamp of each post
-        timeline.sort(key=lambda post: post["timestamp"])
-
-        return timeline
-
-    async def print_timeline(self):
-        """Prints the posts in the user's timeline"""
-        timeline = await self.generate_timeline()
-        for post in timeline:
-            print(f"- {post['text']}")
+            if self.verify_post_signature(author_key, post):
+                if author_key in self.posts.keys():
+                    self.posts[author_key].update({current_id: post})
+                else:
+                    self.posts[author_key] = {current_id: post}
+            current_id += 1
+        
+    async def update_timeline(self):
+        for public_key in self.subscriptions:
+            if public_key in self.posts and len(self.posts[public_key]) > 0:
+                post_latest_id = max(self.posts[public_key].keys())
+                await self.find_posts(public_key, post_latest_id + 1)
+            else:
+                await self.find_posts(public_key, 0)
+        return self.posts
