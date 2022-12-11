@@ -21,7 +21,9 @@ import {
   List,
   ListItem,
   ListItemText,
+  Snackbar,
 } from "@mui/material/";
+import ShareIcon from "@mui/icons-material/Share";
 import { Person, QrCode2, QrCodeScanner } from "@mui/icons-material";
 import QRCode from "react-qr-code";
 import Html5QrcodePlugin from "./Html5QrcodePlugin";
@@ -94,6 +96,28 @@ export default function TwitterFeed() {
     //setSubscribed(json);
   };
 
+  const CopyToClipboardButton = (props) => {
+    const [open, setOpen] = useState(false);
+    const handleClick = () => {
+      setOpen(true);
+      navigator.clipboard.writeText(props.pubkey);
+    };
+
+    return (
+      <>
+        <IconButton onClick={handleClick} color="primary">
+          <ShareIcon />
+        </IconButton>
+        <Snackbar
+          open={open}
+          onClose={() => setOpen(false)}
+          autoHideDuration={2000}
+          message="Copied to clipboard"
+        />
+      </>
+    );
+  };
+
   useEffect(() => {
     fetchData();
     fetchPubKey();
@@ -104,7 +128,7 @@ export default function TwitterFeed() {
       fetchSubscriptions();
       fetchSubscribed();
       fetchData();
-    }, 2000);
+    }, 3000);
 
     return () => clearInterval(interval);
   }, []);
@@ -335,18 +359,37 @@ export default function TwitterFeed() {
                   />
                 </ListItem>
                 <Divider key="title-divider" />
-                {subscribed.map((user, index) => (
-                  <React.Fragment>
-                    <ListItem key={index}>
-                      <ListItemText
-                        primary={user.alias}
-                        secondary={user.pubkey}
-                        secondaryTypographyProps={{ fontSize: 10 }}
-                      />
-                    </ListItem>
-                    <Divider key={index + "-divider"} />
-                  </React.Fragment>
-                ))}
+                {subscribed.map((user, index) => {
+                  let found;
+                  if (
+                    (found = subscriptions.find((sub) => {
+                      return sub.pubkey === user.pubkey;
+                    }))
+                  )
+                    return (
+                      <React.Fragment>
+                        <ListItem key={index}>
+                          <ListItemText
+                            primary={found.alias}
+                            secondary={user.pubkey}
+                            secondaryTypographyProps={{ fontSize: 10 }}
+                          />
+                          <CopyToClipboardButton pubkey={user.pubkey} />
+                        </ListItem>
+                        <Divider key={index + "-divider"} />
+                      </React.Fragment>
+                    );
+                  else
+                    return (
+                      <React.Fragment>
+                        <ListItem key={index}>
+                          <ListItemText secondary={user.pubkey} />
+                          <CopyToClipboardButton pubkey={user.pubkey} />
+                        </ListItem>
+                        <Divider key={index + "-divider"} />
+                      </React.Fragment>
+                    );
+                })}
               </List>
             </Paper>
           </Grid>

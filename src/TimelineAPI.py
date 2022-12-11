@@ -1,11 +1,20 @@
 from fastapi import FastAPI, Body, HTTPException
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
-#from .User import User
+from User import User
 import time
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+USER_PRIVATE_KEY_FILE = os.getenv('USER_PRIVATE_KEY_FILE')
+KADEMLIA_PORT = os.getenv('KADEMLIA_PORT')
+RECEIVER_PORT = os.getenv('RECEIVER_PORT')
+
 # Create the User
-# user = User(user_private_key, "127.0.0.1", 5678)
+#user = User(user_private_key, "127.0.0.1", 5678)
 
 app = FastAPI()
 
@@ -83,21 +92,19 @@ async def get_public_key():
 @app.get("/subscriptions")
 async def get_subscriptions():
     return [
-        {"alias": "Zé", "pubkey": "MCowBQYDK2VwAyEAaGHMrIKC3h27SO99YbKEUfUEXDOXjJHYOA5uWHR/rCU="},
-        {"alias": "Fred", "pubkey": "MCowBQYDK2VwAyEAaGHMrIKC3h27SO99YbKEUfUEXDOXjJHYOA5uWHR/rCU="},
-        {"alias": "Rita", "pubkey": "MCowBQYDK2VwAyEAaGHMrIKC3h27SO99YbKEUfUEXDOXjJHYOA5uWHR/rCU="}
+        {"alias": "Zé", "pubkey": "MCowBQYDK2VwAyEAaGHMrIKC3h27SO99YbKEUfUEXDOXjJHYOA5uWHR/rCU=ze"},
+        {"alias": "Fred", "pubkey": "MCowBQYDK2VwAyEAaGHMrIKC3h27SO99YbKEUfUEXDOXjJHYOA5uWHR/rCU=fred"},
+        {"alias": "Rita", "pubkey": "MCowBQYDK2VwAyEAaGHMrIKC3h27SO99YbKEUfUEXDOXjJHYOA5uWHR/rCU=rita"}
     ]
 
 
 @app.get("/subscribed")
 async def get_subscribed():
     return [
-        {"alias": "Joaquim",
-            "pubkey": "MCowBQYDK2VwAyEAaGHMrIKC3h27SO99YbKEUfUEXDOXjJHYOA5uWHR/rCU="},
-        {"alias": "Bernardo",
-            "pubkey": "MCowBQYDK2VwAyEAaGHMrIKC3h27SO99YbKEUfUEXDOXjJHYOA5uWHR/rCU="},
-        {"alias": "Henrique",
-            "pubkey": "MCowBQYDK2VwAyEAaGHMrIKC3h27SO99YbKEUfUEXDOXjJHYOA5uWHR/rCU="}
+        {"pubkey": "MCowBQYDK2VwAyEAaGHMrIKC3h27SO99YbKEUfUEXDOXjJHYOA5uWHR/rCU=ze"},
+        {"pubkey": "MCowBQYDK2VwAyEAaGHMrIKC3h27SO99YbKEUfUEXDOXjJHYOA5uWHR/rCU="},
+        {"pubkey": "MCowBQYDK2VwAyEAaGHMrIKC3h27SO99YbKEUfUEXDOXjJHYOA5uWHR/rCU="},
+        {"pubkey": "MCowBQYDK2VwAyEAaGHMrIKC3h27SO99YbKEUfUEXDOXjJHYOA5uWHR/rCU="}
     ]
 
 
