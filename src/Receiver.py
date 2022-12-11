@@ -17,7 +17,7 @@ class Receiver(Thread):
     
     async def request_handler(self, reader, writer):
         try:
-            line = await reader.read()
+            line = await reader.read(-1)
             
             if line:
                 line = line.strip()
@@ -41,15 +41,21 @@ class Receiver(Thread):
             print("Receiver Exception " + str(e) + " in operation " + str(operation))
 
     def subscribe_handler(self, message):
+        print("DEBUG_SUBHAND_SELF: " + str(self.user.public_key))
+        print("DEBUG_SUBHAND_SENDDEST: " + str(message["sender"]))
         self.user.add_subscriber(message["sender"])
         asyncio.run_coroutine_threadsafe(self.user.send_posts(message["sender"], self.user.public_key), loop=self.user.loop)
     
     def unsubscribe_handler(self, message):
-        asyncio.run_coroutine_threadsafe(self.user.remove_subscriber(message["sender"]), loop=self.user.loop)
+        self.user.remove_subscriber(message["sender"])
         
     def request_posts_handler(self, message):
+        print("DEBUG_REQUESTHAND_SELF: " + str(self.user.public_key))
+        print("DEBUG_REQUESTHAND_SENDDEST: " + str(message["sender"]))
         asyncio.run_coroutine_threadsafe(self.user.send_posts(message["sender"], message["target"], message["first_post"]), loop=self.user.loop)
     
     def send_posts_handler(self, message):
+        print("DEBUG_SENDHAND_SELF: " + str(self.user.public_key))
+        print("DEBUG_SENDHAND_AUTH: " + str(message["author"]))
         self.user.receive_posts(message["author"], json.loads(message["posts"]))
     

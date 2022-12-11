@@ -176,6 +176,7 @@ class User:
             #"signature": None,
         }
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['timestamp']}")
+        print("DEBUG_INSIDE_SUB_DEST:" + str(public_key))
         direct_ans = await self.send_to_peer(public_key, message)
         # Target doesn't exist
         if direct_ans[0] == -2:
@@ -189,9 +190,10 @@ class User:
             if direct_ans[0] == -1:
                 peer_subscribers = direct_ans[2]["subscribers"]
                 for sub in peer_subscribers:
-                    sub_ans = await self.request_posts(sub, public_key, 0)
-                    if sub_ans[0]:
-                        return (1, "Subscribed and got posts from other subscribers")
+                    if sub != self.public_key:
+                        sub_ans = await self.request_posts(sub, public_key, 0)
+                        if sub_ans[0]:
+                            return (1, "Subscribed and got posts from other subscribers")
                 return (-1, "Subscribed but didn't get posts from other subscribers")
 
             # Target is online
@@ -223,9 +225,10 @@ class User:
                 return (-2, "Didn't request posts. Target Public Key unknown")
             target_info = json.loads(target_info)
             for sub in target_info["subscribers"]:
-                sub_ans = await self.request_posts(sub, target_public_key, first_post)
-                if sub_ans[0]:
-                    return (1, "Requested posts to other subscribers")
+                if sub != self.public_key:
+                    sub_ans = await self.request_posts(sub, target_public_key, first_post)
+                    if sub_ans[0]:
+                        return (1, "Requested posts to other subscribers")
             return (-1, "Didn't request posts. Neither target nor subscribers were available")
         else:
             return direct_ans
@@ -242,6 +245,7 @@ class User:
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['target']}:{message['first_post']}:{message['timestamp']}")
         if await self.server.get(target_public_key) == None:
             return (-3, "Didn't request posts. Target Public Key unknown")
+        print("DEBUG_INSIDE_REQ_DEST:" + str(public_key))
         ans = await self.send_to_peer(public_key, message)
         if ans[0] == -2:
             return (-2, "Didn't request posts. Interlocutor Public Key unknown")
@@ -270,6 +274,7 @@ class User:
             #"signature": None,
         }
         #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['author']}:{message['first_id']}:{message['posts']}:{message['timestamp']}")
+        print("DEBUG_INSIDE_SEND_DEST:" + str(public_key))
         ans = await self.send_to_peer(public_key, message)
         if ans[0] == -2:
             return (-2, "Didn't send posts. Public Key unknown")
@@ -279,19 +284,41 @@ class User:
             return (-1, "Didn't send posts. User offline")
 
     def receive_posts(self, author_key, posts):
+        print("DEBUG_INSIDE_REC_SELF:" + str(self.public_key))
         for item in posts.items():
             if self.verify_post_signature(author_key, item[1]):
                 if author_key in self.posts.keys():
                     if item[0] not in self.posts[author_key].keys():
-                        self.posts[author_key].update({item[0]: item[1]})
+                        self.posts[author_key].update({int(item[0]): item[1]})
                 else:
-                    self.posts[author_key]= {item[0]: item[1]}
+                    self.posts[author_key]= {int(item[0]): item[1]}
+                
+    async def send_sync(self, public_key):
+        message = {
+            "op": "sync",
+            "last_post_id": self.last_post_id,
+            "sender": self.public_key,
+            "timestamp": time.time(),
+            #"signature": None,
+        }
+        #message["signature"] = self.sign(f"{message['op']}:{message['sender']}:{message['timestamp']}")
+        ans = await self.send_to_peer(public_key, message)
+        if ans[0] == -2:
+            return (-2, "Didn't unsubscribe. Public Key unknown")
+        else:
+            self.remove_subscription(public_key)
+            await self.remove_subscription_from_foreign_dht(public_key)
+            if ans[0]:
+                return (0, "Unsubscribed and warned target")
+            return (-1, "Unsubscribed but didn't warn target")
         
     async def update_timeline(self):
         for public_key in self.subscriptions:
             if public_key in self.posts and len(self.posts[public_key]) > 0:
                 post_latest_id = int(max(self.posts[public_key].keys()))
+                print("D1:" + str(public_key) + ":" + str(post_latest_id + 1))
                 await self.find_posts(public_key, post_latest_id + 1)
             else:
+                print("D2:" + str(public_key))
                 await self.find_posts(public_key, 0)
         return self.posts
