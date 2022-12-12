@@ -2,3 +2,4 @@ cryptography
 kademlia
 fastapi
 uvicorn
+nest_asyncio

@@ -1,15 +1,18 @@
 import json
 import sys
 import asyncio
+import time
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from kademlia.network import Server
 from User import User
 
 if __name__ == "__main__":
+    '''
     import logging
     log = logging.getLogger('kademlia')
     log.setLevel(logging.DEBUG)
     log.addHandler(logging.StreamHandler())
+    '''
 
     '''
     # Check that a port was specified
@@ -63,32 +66,58 @@ if __name__ == "__main__":
     loop.create_task(user.print_timeline())
     '''
 
-    loop = asyncio.get_event_loop()
+    alice = User(Ed25519PrivateKey.generate(), "127.0.0.1", 1233, 5007, persistence_file="alice_vieira4.json")
 
-    alice = User(Ed25519PrivateKey.generate(), "127.0.0.1", 1233, 5001)
+    bob = User(Ed25519PrivateKey.generate(), "127.0.0.2", 1234, 5002, [("127.0.0.1", 1233)], persistence_file="bob_vance4.json")
 
-    bob = User(Ed25519PrivateKey.generate(), "127.0.0.2", 1234, 5002)
+    print("ALICE KEY:" + str(alice.public_key))
+    print("BOB KEY:" + str(bob.public_key))
 
-    loop.run_until_complete(alice.server.bootstrap([(bob.ip, 1234)]))
+    print("ALICE POSTS:" + str(alice.posts))
 
-    loop.run_until_complete(alice.create_post("Hola soy Aliceee"))
+    alice.loop.run_until_complete(alice.create_post("Hola soy Aliceee"))
+    
+    alice.loop.run_until_complete(alice.create_post("Ou em tuga: Olá sou a Aliceee"))
+        
+    print("ALICE POSTS2:" + str(alice.posts))
 
-    loop.run_until_complete(bob.subscribe(alice.public_key))
+    print("BOB POSTS:" + str(bob.posts))
+    
+    print("ALICE SUBSCRIB:" + str(alice.subscribers))
 
-    loop.run_until_complete(bob.update_timeline())
+    print("BOB SUBSCRIP:" + str(bob.subscriptions))
 
-    a = loop.run_until_complete(alice.server.get(alice.serialize_key(alice.public_key)))
-    print("A")
-    print(a)
-    b = loop.run_until_complete(bob.server.get(bob.serialize_key(bob.public_key)))
-    print("B")
-    print(b)
-    c = loop.run_until_complete(alice.server.get(alice.serialize_key(bob.public_key)))
-    print("C")
-    print(c)
-    d = loop.run_until_complete(bob.server.get(bob.serialize_key(alice.public_key)))
-    print("D")
-    print(d)
+    bob.loop.run_until_complete(bob.subscribe(alice.public_key))
+    bob.loop.run_until_complete(bob.subscribe(alice.public_key))
+            
+    print("ALICE SUBSCRIB2:" + str(alice.subscribers))
+    
+    print("BOB SUBSCRIP2:" + str(bob.subscriptions))
+    
+    print("BOB POSTS2:" + str(bob.posts))
+    
+    alice.loop.run_until_complete(alice.create_post("No teu país das maravilhas"))
+        
+    print("ALICE POSTS3:" + str(alice.posts))
 
-    print(bob.posts)
-
+    #bob.loop.run_until_complete(bob.update_timeline())
+    
+    #bob.loop.run_until_complete(bob.update_timeline())
+    
+    print("BOB POSTS3:" + str(bob.posts))
+    
+    #bob.loop.run_until_complete(bob.unsubscribe(alice.public_key))
+        
+    print("ALICE SUBSCRIB3:" + str(alice.subscribers))
+    
+    print("BOB SUBSCRIP3:" + str(bob.subscriptions))
+    
+    alice.loop.run_until_complete(alice.create_post("Last call"))
+    
+    print("ALICE POSTS4:" + str(alice.posts))
+    
+    print("BOB POSTS4:" + str(bob.posts))
+        
+    #bob.loop.run_until_complete(bob.update_timeline())
+    
+    #print("BOB POSTS5:" + str(bob.posts))
